@@ -67,7 +67,7 @@ pip install PySide6 wmi pypiwin32 psutil
 
 1. **克隆仓库**：
 ```bash
-git clone https://github.com/YourUsername/GPUSwitch.git
+git clone https://github.com/JasonHu051219/GPUSwitch.git
 
 ```
 
