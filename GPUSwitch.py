@@ -6,76 +6,79 @@ import psutil
 import threading
 import wmi
 import pythoncom
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                               QPushButton, QTableWidget, QTableWidgetItem, QComboBox,
-                               QCheckBox, QLabel, QMessageBox, QHeaderView, QFileDialog, QLineEdit)
+
 from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QPushButton, QTableWidget, QTableWidgetItem, QComboBox,
+                             QCheckBox, QLabel, QMessageBox, QHeaderView, QFileDialog,
+                             QLineEdit, QSystemTrayIcon, QMenu, QStyle) # 增加托盘相关组件
+from PySide6.QtGui import QIcon, QAction
 
-# --- Win11 风格 QSS 样式表 ---
-WIN11_STYLE = """
-QMainWindow { background-color: #f3f3f3; }
-QTableWidget {
-    background-color: white;
-    border: 1px solid #dcdcdc;
-    gridline-color: #f0f0f0;
-    border-radius: 8px;
-    outline: 0;
-}
-QHeaderView::section {
-    background-color: #f9f9f9;
-    padding: 8px;
-    border: none;
-    border-bottom: 1px solid #dcdcdc;
-    font-weight: bold;
-}
-QPushButton {
-    background-color: #ffffff;
-    border: 1px solid #dcdcdc;
-    border-radius: 6px;
-    padding: 6px 15px;
-}
-QPushButton:hover { background-color: #f9f9f9; border-color: #c0c0c0; }
-QPushButton#applyBtn {
-    background-color: #2ecc71;
-    color: white;
-    font-weight: bold;
-    border: none;
-    padding: 8px 25px;
-}
-QPushButton#applyBtn:hover { background-color: #27ae60; }
-QPushButton#applyBtn:disabled { background-color: #bdc3c7; }
-QComboBox {
-    border: 1px solid #dcdcdc;
-    border-radius: 4px;
-    padding: 3px 10px;
-    background: white;
-}
-QLineEdit {
-    border: 1px solid #dcdcdc;
-    border-radius: 6px;
-    padding: 6px;
-    background: white;
-}
-QComboBox QAbstractItemView {
-    background-color: white;
-    border: 1px solid #dcdcdc;
-    selection-background-color: #0000CD; /* 鼠标悬停时的浅灰色背景 */
-    selection-color: black;            /* 鼠标悬停时的文字颜色，强制为黑色 */
-    outline: 0;
-}
-
-/* 下拉列表内每个选项的高度和间距 */
-QComboBox QAbstractItemView::item {
-    min-height: 30px;
-    padding-left: 10px;
-}
-
-/* 鼠标悬停在选项上时的状态 */
-QComboBox QAbstractItemView::item:hover {
-    background-color: #f0f0f0;
-    color: black;
-}
-"""
+# # --- Win11 风格 QSS 样式表 ---
+# WIN11_STYLE = """
+# QMainWindow { background-color: #f3f3f3; }
+# QTableWidget {
+#     background-color: white;
+#     border: 1px solid #dcdcdc;
+#     gridline-color: #f0f0f0;
+#     border-radius: 8px;
+#     outline: 0;
+# }
+# QHeaderView::section {
+#     background-color: #f9f9f9;
+#     padding: 8px;
+#     border: none;
+#     border-bottom: 1px solid #dcdcdc;
+#     font-weight: bold;
+# }
+# QPushButton {
+#     background-color: #ffffff;
+#     border: 1px solid #dcdcdc;
+#     border-radius: 6px;
+#     padding: 6px 15px;
+# }
+# QPushButton:hover { background-color: #f9f9f9; border-color: #c0c0c0; }
+# QPushButton#applyBtn {
+#     background-color: #2ecc71;
+#     color: white;
+#     font-weight: bold;
+#     border: none;
+#     padding: 8px 25px;
+# }
+# QPushButton#applyBtn:hover { background-color: #27ae60; }
+# QPushButton#applyBtn:disabled { background-color: #bdc3c7; }
+# QComboBox {
+#     border: 1px solid #dcdcdc;
+#     border-radius: 4px;
+#     padding: 3px 10px;
+#     background: white;
+# }
+# QLineEdit {
+#     border: 1px solid #dcdcdc;
+#     border-radius: 6px;
+#     padding: 6px;
+#     background: white;
+# }
+# QComboBox QAbstractItemView {
+#     background-color: white;
+#     border: 1px solid #dcdcdc;
+#     selection-background-color: #0000CD; /* 鼠标悬停时的浅灰色背景 */
+#     selection-color: black;            /* 鼠标悬停时的文字颜色，强制为黑色 */
+#     outline: 0;
+# }
+#
+# /* 下拉列表内每个选项的高度和间距 */
+# QComboBox QAbstractItemView::item {
+#     min-height: 30px;
+#     padding-left: 10px;
+# }
+#
+# /* 鼠标悬停在选项上时的状态 */
+# QComboBox QAbstractItemView::item:hover {
+#     background-color: #f0f0f0;
+#     color: black;
+# }
+# """
 
 
 class GuardSignals(QObject):
@@ -85,9 +88,9 @@ class GuardSignals(QObject):
 class GPUSwitch(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("GPUSwitch (GPUS) - 进程监听重启版")
+        self.setWindowTitle("GPUSwitch")
         self.setMinimumSize(1000, 650)
-        self.setStyleSheet(WIN11_STYLE)
+
 
         self.reg_path = r"Software\Microsoft\DirectX\UserGpuPreferences"
         self.ask_list = set()
@@ -100,6 +103,74 @@ class GPUSwitch(QMainWindow):
         self.setup_ui()
         self.load_apps()
         self.start_guard_thread()
+
+        # 初始化托盘图标
+        self.init_tray()
+
+        # 标记是否真正退出
+        self.really_quit = False
+
+    def init_tray(self):
+        """初始化系统托盘"""
+        self.tray_icon = QSystemTrayIcon(self)
+
+        # 设置托盘图标
+        # 这里使用系统自带的一个样式图标作为演示
+        self.tray_icon.setIcon(self.style().standardIcon(QStyle.SP_ComputerIcon))
+
+        # 创建托盘右键菜单
+        tray_menu = QMenu()
+
+        show_action = QAction("显示主界面", self)
+        show_action.triggered.connect(self.showNormal)
+
+        quit_action = QAction("彻底退出", self)
+        quit_action.triggered.connect(self.quit_app)
+
+        tray_menu.addAction(show_action)
+        tray_menu.addSeparator()
+        tray_menu.addAction(quit_action)
+
+        self.tray_icon.setContextMenu(tray_menu)
+
+        # 托盘图标左键双击事件
+        self.tray_icon.activated.connect(self.on_tray_icon_activated)
+
+        self.tray_icon.show()
+
+    def on_tray_icon_activated(self, reason):
+        if reason == QSystemTrayIcon.DoubleClick:
+            self.showNormal()
+            self.activateWindow()
+
+    def closeEvent(self, event):
+        """重写关闭事件"""
+        # 如果用户勾选了“最小化到托盘”，且不是通过托盘菜单强制退出
+        if self.check_minimize_to_tray.isChecked() and not self.really_quit:
+            event.ignore()  # 忽略 Windows 的默认关闭动作
+            self.hide()  # 隐藏主窗口
+
+            # 弹出气泡提示（仅在第一次隐藏时比较有用，也可以一直弹出）
+            self.tray_icon.showMessage(
+                "GPUSwitch 仍在后台运行",
+                "已开启进程监听守护模式。",
+                QSystemTrayIcon.Information,
+                2000
+            )
+        else:
+            # 如果没勾选，或者点击了“彻底退出”，则直接关闭
+            self.tray_icon.hide()  # 确保退出时托盘图标立即消失
+            event.accept()
+
+    def quit_app(self):
+        """真正的退出逻辑"""
+        reply = QMessageBox.question(self, '确认退出', "退出后将停止所有进程监听，确定吗？",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.really_quit = True
+            # 关闭托盘防止残留
+            self.tray_icon.hide()
+            QApplication.quit()
 
     def setup_ui(self):
         self.central_widget = QWidget()
@@ -130,7 +201,7 @@ class GPUSwitch(QMainWindow):
         # 表格
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["程序名称", "文件完整路径", "显卡偏好设置", "运行时询问 (自动重启)"])
+        self.table.setHorizontalHeaderLabels(["程序名称", "文件完整路径", "显卡偏好设置", "运行时询问"])
 
         # 启用点击表头排序功能
         self.table.setSortingEnabled(True)
@@ -159,6 +230,14 @@ class GPUSwitch(QMainWindow):
         bottom_bar.addStretch()
         bottom_bar.addWidget(self.btn_apply)
         self.layout.addLayout(bottom_bar)
+
+        # 在底部状态栏上方或左侧添加“最小化到托盘”复选框
+        self.check_minimize_to_tray = QCheckBox("点击关闭时最小化到系统托盘")
+        self.check_minimize_to_tray.setChecked(True)  # 默认开启
+        self.check_minimize_to_tray.setStyleSheet("color: #7f8c8d; font-size: 12px;")
+
+        # 将其加入到底部栏布局中
+        bottom_bar.insertWidget(1, self.check_minimize_to_tray)
 
     def load_apps(self):
         # 刷新时临时关闭排序，防止插入数据时乱跳
@@ -200,7 +279,8 @@ class GPUSwitch(QMainWindow):
         combo.currentIndexChanged.connect(lambda: self.mark_as_changed(path))
         self.table.setCellWidget(row, 2, combo)
 
-        check = QCheckBox("启用弹窗重启")
+        check = QCheckBox()
+        check.setContentsMargins(20, 20, 20, 20)
         check.setChecked(is_ask)
         check.stateChanged.connect(lambda: self.mark_as_changed(path))
         self.table.setCellWidget(row, 3, check)
@@ -253,7 +333,7 @@ class GPUSwitch(QMainWindow):
 
     def show_ask_dialog(self, exe_path):
         dialog = QWidget()
-        dialog.setStyleSheet(WIN11_STYLE)
+        #dialog.setStyleSheet(WIN11_STYLE)
         dialog.setWindowTitle("GPUSwitch 模式切换")
         dialog.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.Tool)
         dialog.setFixedSize(360, 200)
