@@ -14,6 +14,14 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QLineEdit, QSystemTrayIcon, QMenu, QStyle) # 增加托盘相关组件
 from PySide6.QtGui import QIcon, QAction
 
+def get_resource_path(relative_path):
+    """ 获取资源绝对路径，兼容 PyInstaller 打包后的临时目录 """
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+
+
 
 class GuardSignals(QObject):
     request_ask = Signal(str)
@@ -24,7 +32,7 @@ class GPUSwitch(QMainWindow):
         super().__init__()
         self.setWindowTitle("GPUSwitch")
         self.setMinimumSize(1000, 650)
-
+        self.setWindowIcon(QIcon("app_icon.ico"))
 
         self.reg_path = r"Software\Microsoft\DirectX\UserGpuPreferences"
         self.ask_list = set()
@@ -40,23 +48,32 @@ class GPUSwitch(QMainWindow):
 
         # 初始化托盘图标
         self.init_tray()
-
-        # 标记是否真正退出
+        self.first_close = True  # 标记是否为首次关闭
         self.really_quit = False
 
+        # # 标记是否真正退出
+        # self.really_quit = False
+
+        # 在设置图标时调用它：
+        icon_path = get_resource_path("app_icon.ico")
+        self.setWindowIcon(QIcon(icon_path))
+        self.tray_icon.setIcon(QIcon(icon_path))
+
     def init_tray(self):
-        """初始化系统托盘"""
+        """初始化系统托盘：增加左键单击响应和悬停提示"""
         self.tray_icon = QSystemTrayIcon(self)
 
-        # 设置托盘图标
-        # 这里使用系统自带的一个样式图标作为演示
-        self.tray_icon.setIcon(self.style().standardIcon(QStyle.SP_ComputerIcon))
+        # 1. 设置托盘图标
+        icon_path = get_resource_path("app_icon.ico")
+        self.tray_icon.setIcon(QIcon(icon_path))
 
-        # 创建托盘右键菜单
+        # 2. 设置鼠标悬浮显示的名称
+        self.tray_icon.setToolTip("GPUSwitch")
+
+        # 3. 创建托盘右键菜单
         tray_menu = QMenu()
-
         show_action = QAction("显示主界面", self)
-        show_action.triggered.connect(self.showNormal)
+        show_action.triggered.connect(self.show_and_activate)  # 使用增强的显示函数
 
         quit_action = QAction("彻底退出", self)
         quit_action.triggered.connect(self.quit_app)
@@ -64,13 +81,27 @@ class GPUSwitch(QMainWindow):
         tray_menu.addAction(show_action)
         tray_menu.addSeparator()
         tray_menu.addAction(quit_action)
-
         self.tray_icon.setContextMenu(tray_menu)
 
-        # 托盘图标左键双击事件
+        # 4. 监听图标激活事件（处理左键单击）
         self.tray_icon.activated.connect(self.on_tray_icon_activated)
 
         self.tray_icon.show()
+
+    def show_and_activate(self):
+        """显示并激活窗口，确保它跳到最前面"""
+        self.showNormal()
+        self.activateWindow()
+        self.raise_()
+
+    def on_tray_icon_activated(self, reason):
+        """处理托盘点击逻辑"""
+        # Trigger 为左键单击，DoubleClick 为双击
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            if self.isVisible():
+                self.hide()  # 如果已显示则隐藏（类似 QQ 逻辑）
+            else:
+                self.show_and_activate()  # 如果隐藏则显示
 
     def on_tray_icon_activated(self, reason):
         if reason == QSystemTrayIcon.DoubleClick:
@@ -78,23 +109,49 @@ class GPUSwitch(QMainWindow):
             self.activateWindow()
 
     def closeEvent(self, event):
-        """重写关闭事件"""
-        # 如果用户勾选了“最小化到托盘”，且不是通过托盘菜单强制退出
-        if self.check_minimize_to_tray.isChecked() and not self.really_quit:
-            event.ignore()  # 忽略 Windows 的默认关闭动作
-            self.hide()  # 隐藏主窗口
-
-            # 弹出气泡提示（仅在第一次隐藏时比较有用，也可以一直弹出）
-            self.tray_icon.showMessage(
-                "GPUSwitch 仍在后台运行",
-                "已开启进程监听守护模式。",
-                QSystemTrayIcon.Information,
-                2000
-            )
-        else:
-            # 如果没勾选，或者点击了“彻底退出”，则直接关闭
-            self.tray_icon.hide()  # 确保退出时托盘图标立即消失
+        """优化后的关闭事件逻辑"""
+        # 如果是通过托盘菜单点击“彻底退出”，则直接关闭程序
+        if self.really_quit:
+            self.tray_icon.hide()
             event.accept()
+            return
+
+        # 处理点击“X”按钮的逻辑
+        if self.first_close:
+            # 弹出询问对话框
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("退出确认")
+            msg_box.setText("您点击了关闭按钮，请选择操作：")
+
+            # 添加自定义按钮
+            btn_tray = msg_box.addButton("最小化到托盘", QMessageBox.AcceptRole)
+            btn_quit = msg_box.addButton("完全退出程序", QMessageBox.DestructiveRole)
+            msg_box.setDefaultButton(btn_tray)
+
+            msg_box.exec()
+
+            # 根据用户选择处理
+            if msg_box.clickedButton() == btn_tray:
+                self.first_close = False  # 标记以后不再询问
+                # 同时也自动勾选你的“最小化到托盘”复选框（如果有的话）
+                if hasattr(self, 'check_minimize_to_tray'):
+                    self.check_minimize_to_tray.setChecked(True)
+
+                event.ignore()
+                self.hide()
+            else:
+                # 用户选择完全关闭
+                self.tray_icon.hide()
+                event.accept()
+        else:
+            # 非首次关闭，且用户之前选择了托盘模式，直接隐藏
+            if hasattr(self, 'check_minimize_to_tray') and self.check_minimize_to_tray.isChecked():
+                event.ignore()
+                self.hide()
+            else:
+                # 如果用户后来手动取消了勾选，则正常退出
+                self.tray_icon.hide()
+                event.accept()
 
     def quit_app(self):
         """真正的退出逻辑"""
@@ -165,8 +222,8 @@ class GPUSwitch(QMainWindow):
         bottom_bar.addWidget(self.btn_apply)
         self.layout.addLayout(bottom_bar)
 
-        # 在底部状态栏上方或左侧添加“最小化到托盘”复选框
-        self.check_minimize_to_tray = QCheckBox("点击关闭时最小化到系统托盘")
+        # 在底部状态栏左侧添加“最小化到托盘”复选框
+        self.check_minimize_to_tray = QCheckBox("最小化到系统托盘")
         self.check_minimize_to_tray.setChecked(True)  # 默认开启
         self.check_minimize_to_tray.setStyleSheet("color: #7f8c8d; font-size: 12px;")
 
@@ -214,7 +271,6 @@ class GPUSwitch(QMainWindow):
         self.table.setCellWidget(row, 2, combo)
 
         check = QCheckBox()
-        check.setContentsMargins(20, 20, 20, 20)
         check.setChecked(is_ask)
         check.stateChanged.connect(lambda: self.mark_as_changed(path))
         self.table.setCellWidget(row, 3, check)
