@@ -25,32 +25,32 @@
 
 ## 🛠️ 功能实现原理
 
-本程序弃用了传统的 **IFEO (Image File Execution Options)** 劫持方案，采用了更稳定的组合技术栈：
+本程序通过修改 Windows 系统原生的显卡偏好配置实现功能，采用了以下技术路径：
 
 ### 1. 进程监听 (Guard Engine)
 
-程序利用 **WMI (Windows Management Instrumentation)** 的事件订阅机制。
+程序利用 **WMI (Windows Management Instrumentation)** 的监听机制。
 
-* **实现方法**：通过 `Win32_Process` 的 `Creation` 事件监听系统进程树的变化。
+* **实现方法**：通过 `Win32_Process` 的 `Creation` 事件，实时感知系统内新进程的创建。
 * **优势**：相比于死循环轮询，WMI 监听几乎不占用 CPU 资源，且响应极其迅速。
 
-### 2. 显卡偏好注入 (Registry Injection)
+### 2. 显卡偏好读写 (Registry Configuration)
 
 * **实现方法**：直接读写注册表路径 `HKCU\Software\Microsoft\DirectX\UserGpuPreferences`。
-* **逻辑**：Windows 会在应用初始化 DirectX 或 Vulkan 环境前读取该键值。通过在此处写入 `GpuPreference=2;`（高性能）或 `1;`（省电），引导系统分配正确的 GPU 核心。
+* **逻辑**：Windows 会在应用初始化显卡环境前读取该路径下的配置。程序通过修改 `GpuPreference` 的数值（1 为省电，2 为高性能），引导系统分配指定的 GPU 核心。
 
-### 3. 原子化重启 (Atomic Restart)
+### 3. 进程重启 (Process Restart)
 
-为了解决“程序已启动，修改注册表太晚”的问题，程序执行以下原子操作：
+为了使修改后的配置生效（解决“配置滞后”问题），程序执行以下操作序列：
 
-1. **识别**：获取目标进程的 PID。
-2. **终结**：利用 `psutil` 的 `kill()` 方法强制结束进程。
-3. **冷却**：执行 1 秒的阻塞式等待 (`time.sleep`)，确保操作系统彻底释放文件锁和驱动句柄。
-4. **拉起**：使用 `os.startfile` 重新启动程序，此时程序会读取到刚刚写入的新显卡配置。
+1.**识别**：获取目标进程的路径与 PID。
+2.**终止**：利用 `psutil` 接口安全结束目标进程。
+3.**延迟**：执行短时间的阻塞等待（约 1 秒），确保系统彻底释放相关硬件句柄。
+4.**重新启动**：使用 `os.startfile` 重新启动程序，触发系统重新读取已修改的显卡偏好。
 
-### 4. 智能防循环 (Cooldown Mechanism)
+### 4. 冲突控制 (Cooldown Mechanism)
 
-* **逻辑**：引入基于时间戳的冷却字典。当程序被 GPUSwitch 重启后，其产生的第二次启动事件会被冷却逻辑（默认 10 秒）拦截，从而避免出现无限弹窗循环。
+* **逻辑**：引入基于时间戳的冷却字典。当程序被 GPUSwitch 重启后，10 秒内产生的同路径启动事件将被忽略，有效避免了循环弹窗与重复重启。
 
 ---
 

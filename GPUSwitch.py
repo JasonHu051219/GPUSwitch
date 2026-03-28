@@ -60,6 +60,8 @@ class GPUSwitch(QMainWindow):
         # 6. 开启后台监听线程
         self.start_guard_thread()
 
+
+
     def setup_ui(self):
         """ 构建主界面布局 """
         self.central_widget = QWidget()
@@ -89,13 +91,14 @@ class GPUSwitch(QMainWindow):
 
         # --- 程序列表表格 ---
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["程序名称", "文件完整路径", "显卡偏好设置", "运行时询问"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["程序名称", "文件完整路径", "显卡偏好设置", "运行时询问", "删除程序"])
         self.table.setSortingEnabled(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.table.setColumnWidth(0, 180)
+        self.table.setColumnWidth(0, 160)
         self.table.setColumnWidth(1, 450)
         self.table.setColumnWidth(2, 150)
+        self.table.setColumnWidth(3, 90)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.main_layout.addWidget(self.table)
 
@@ -128,7 +131,7 @@ class GPUSwitch(QMainWindow):
     def init_tray(self):
         """ 初始化系统托盘及菜单 """
         self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setToolTip("GPUSwitch - 显卡切换守护者")
+        self.tray_icon.setToolTip("GPUSwitch")
 
         tray_menu = QMenu()
         show_action = QAction("显示主界面", self)
@@ -238,6 +241,7 @@ class GPUSwitch(QMainWindow):
         self.table.setItem(row, 0, QTableWidgetItem(os.path.basename(path)))
         self.table.setItem(row, 1, QTableWidgetItem(path))
 
+        #显卡偏好下拉框
         combo = QComboBox()
         combo.addItems(["系统默认", "省电 (集显)", "高性能 (独显)"])
         clean_val = val.replace("ASK", "")
@@ -246,10 +250,43 @@ class GPUSwitch(QMainWindow):
         combo.currentIndexChanged.connect(lambda: self.mark_as_changed(path))
         self.table.setCellWidget(row, 2, combo)
 
+        #更改：复选框在格内居中
+        check_widget = QWidget()
+        check_layout = QHBoxLayout(check_widget)
         check = QCheckBox()
         check.setChecked(is_ask)
         check.stateChanged.connect(lambda: self.mark_as_changed(path))
-        self.table.setCellWidget(row, 3, check)
+        check_layout.addWidget(check)
+        check_layout.setAlignment(Qt.AlignCenter)  # 关键：设置居中
+        check_layout.setContentsMargins(0, 0, 0, 0)
+        self.table.setCellWidget(row, 3, check_widget)
+
+
+        #新增：删除按钮并居中
+        btn_container = QWidget()
+        btn_layout = QHBoxLayout(btn_container)
+
+        btn_del = QPushButton("删除")
+        btn_del.setFixedSize(60, 28)  # 固定按钮大小
+        btn_del.setStyleSheet("""
+                    QPushButton { 
+                        background-color: #ff4d4f; 
+                        color: white; 
+                        border-radius: 4px; 
+                        font-weight: bold;
+                        font-size: 12px;
+                    }
+                    QPushButton:hover { background-color: #ff7875; }
+                    QPushButton:pressed { background-color: #d9363e; }
+                """)
+        btn_del.clicked.connect(lambda: self.delete_app_entry(path))
+
+        btn_layout.addWidget(btn_del)
+        btn_layout.setAlignment(Qt.AlignCenter)  # 核心：设置布局居中
+        btn_layout.setContentsMargins(0, 0, 0, 0)  # 消除边距
+
+        self.table.setCellWidget(row, 4, btn_container)
+
 
     def mark_as_changed(self, path):
         """ 记录被修改的行 """
@@ -305,6 +342,22 @@ class GPUSwitch(QMainWindow):
                     break
 
         threading.Thread(target=watch_procs, daemon=True).start()
+
+    def delete_app_confirm(self, path):
+        """ 弹出确认框并从注册表中删除项 """
+        reply = QMessageBox.question(self, '确认删除', f"确定要从列表中移除该程序吗？\n{os.path.basename(path)}",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, self.reg_path, 0, winreg.KEY_SET_VALUE)
+                winreg.DeleteValue(key, path)
+                winreg.CloseKey(key)
+                self.load_apps()  # 重新加载列表
+                QMessageBox.information(self, "成功", "已成功移除该项")
+            except Exception as e:
+                QMessageBox.warning(self, "错误", f"删除失败: {e}")
+
 
     def show_ask_dialog(self, exe_path):
         """ 弹出显卡模式询问对话框 """
