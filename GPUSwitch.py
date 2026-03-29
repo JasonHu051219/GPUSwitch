@@ -279,7 +279,7 @@ class GPUSwitch(QMainWindow):
                     QPushButton:hover { background-color: #ff7875; }
                     QPushButton:pressed { background-color: #d9363e; }
                 """)
-        btn_del.clicked.connect(lambda: self.delete_app_entry(path))
+        btn_del.clicked.connect(lambda: self.delete_app_confirm(path))
 
         btn_layout.addWidget(btn_del)
         btn_layout.setAlignment(Qt.AlignCenter)  # 核心：设置布局居中
